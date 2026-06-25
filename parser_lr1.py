@@ -3,39 +3,6 @@
 
 from collections import defaultdict
 
-# ============================================================
-# Utilidades para imprimir la traza como una tabla bien cuadrada.
-# Estas mismas funciones se usan aqui y en main.py, asi el
-# encabezado, el separador y cada fila SIEMPRE usan el mismo
-# ancho de columna (si una celda no entra, se recorta con '...'
-# y se rellena con espacios para no desordenar las columnas).
-# ============================================================
-ANCHOS_TRAZA = [4, 26, 22, 26, 38]  # Paso, Pila(estados), Pila(simbolos), Entrada, Accion
-
-
-def _truncar_celda(texto, ancho):
-    texto = str(texto)
-    if len(texto) <= ancho:
-        return texto.ljust(ancho)
-    if ancho <= 3:
-        return texto[:ancho]
-    return texto[:ancho - 3] + '...'
-
-
-def fila_traza(paso, estados, simbolos, entrada, accion):
-    """Construye una fila de la tabla de traza con columnas de ancho fijo."""
-    columnas = [paso, estados, simbolos, entrada, accion]
-    celdas = [_truncar_celda(c, a) for c, a in zip(columnas, ANCHOS_TRAZA)]
-    return '| ' + ' | '.join(celdas) + ' |'
-
-
-def encabezado_traza():
-    return fila_traza('Paso', 'Pila(estados)', 'Pila(simbolos)', 'Entrada', 'Accion')
-
-
-def separador_traza():
-    return '-' * len(encabezado_traza())
-
 
 class LR1ParserGenerator:
     def __init__(self, gramatica):
@@ -394,7 +361,7 @@ class LR1Parser:
                 accion = self.accion[estado][simbolo]
             
             if mostrar_traza and paso <= 50:
-                self._mostrar_paso(paso, estado, token_actual, accion)
+                self._registrar_paso(paso, estado, token_actual, accion)
             
             if accion is None:
                 if len(self.errores) >= max_errores:
@@ -402,6 +369,8 @@ class LR1Parser:
                     print(f"[DEBUG] Ultimo estado: {estado}, simbolo: '{lexema}', codigo: {codigo_token}")
                     if estado in self.accion:
                         print(f"[DEBUG] Acciones disponibles: {list(self.accion[estado].keys())}")
+                    if mostrar_traza:
+                        self._imprimir_tabla_traza()
                     return False, self.errores, self.pasos
                 
                 if simbolo == '$':
@@ -410,6 +379,8 @@ class LR1Parser:
                         f"[ERROR] en EOF: se esperaba {esperado}, pero la entrada termino"
                     )
                     print(f"  [ERROR] en EOF: se esperaba {esperado}, pero la entrada termino")
+                    if mostrar_traza:
+                        self._imprimir_tabla_traza()
                     return False, self.errores, self.pasos
                 else:
                     self._recuperar_error(token_actual)
@@ -458,6 +429,7 @@ class LR1Parser:
             elif accion[0] == 'aceptar':
                 self.aceptado = True
                 if mostrar_traza:
+                    self._imprimir_tabla_traza()
                     print("  [ACEPTADO]")
                 return True, self.errores, self.pasos
             
@@ -465,6 +437,8 @@ class LR1Parser:
             
             if paso > 500:
                 print("[ERROR] Limite de pasos excedido (500)")
+                if mostrar_traza:
+                    self._imprimir_tabla_traza()
                 return False, self.errores, self.pasos
         
         return False, self.errores, self.pasos
@@ -484,7 +458,11 @@ class LR1Parser:
             return token[3]
         return '?'
     
-    def _mostrar_paso(self, paso, estado, token, accion):
+    def _registrar_paso(self, paso, estado, token, accion):
+        """Calcula los datos de un paso y los guarda en self.pasos.
+        Ya no imprime nada aqui: la tabla completa se imprime al final,
+        con _imprimir_tabla_traza(), para que las columnas se calculen
+        segun el contenido real (sin cortar nada)."""
         pila_estados = ' '.join(str(s) for s in self.pila[-10:])
         pila_simb = ' '.join(t[1] if isinstance(t, tuple) else self._abrev(t) for t in self.pila_simbolos[-10:])
         entrada = ' '.join(t[1] for t in self.tokens[self.pos:self.pos+10]) if self.pos < len(self.tokens) else '$'
@@ -506,9 +484,37 @@ class LR1Parser:
         else:
             accion_str = str(accion)
         
-        print(fila_traza(paso, pila_estados, pila_simb, entrada, accion_str))
-        
         self.pasos.append((paso, pila_estados, pila_simb, entrada, accion_str))
+    
+    def _imprimir_tabla_traza(self):
+        """Imprime self.pasos como una tabla bien cuadrada, SIN cortar
+        contenido: el ancho de cada columna se calcula con el valor mas
+        largo que realmente aparece en ella (incluyendo el encabezado)."""
+        encabezados = ['Paso', 'Pila(estados)', 'Pila(simbolos)', 'Entrada', 'Accion']
+        
+        if not self.pasos:
+            return
+        
+        filas = [[str(valor) for valor in fila] for fila in self.pasos]
+        
+        anchos = [len(h) for h in encabezados]
+        for fila in filas:
+            for i, valor in enumerate(fila):
+                anchos[i] = max(anchos[i], len(valor))
+        
+        def _fila(valores):
+            celdas = [valores[i].ljust(anchos[i]) for i in range(len(valores))]
+            return '| ' + ' | '.join(celdas) + ' |'
+        
+        linea_encabezado = _fila(encabezados)
+        separador = '-' * len(linea_encabezado)
+        
+        print(separador)
+        print(linea_encabezado)
+        print(separador)
+        for fila in filas:
+            print(_fila(fila))
+        print(separador)
     
     def _recuperar_error(self, token):
         puntos_sincro = [1, 2, 3, 4, 6, 14, 15, 16, 17, 24, 25, 999]

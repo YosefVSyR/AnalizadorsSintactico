@@ -3,7 +3,7 @@
 
 import time
 from lexer import LexerQWERTY
-from parser_lr1 import LR1ParserGenerator, encabezado_traza, separador_traza
+from parser_lr1 import LR1ParserGenerator
 from gramatica import crear_gramatica_qwerty
 
 
@@ -92,7 +92,6 @@ def main():
     print("=" * 70)
     print("  ANALIZADOR SINTACTICO LR(1) - LENGUAJE QWERTY")
     print("  Instrucciones: Escriba el codigo y luego '---' en una linea vacia")
-    print("  (Tambien puede usar 'EOF' o Ctrl+D/Ctrl+Z)")
     print("=" * 70)
     
     # Cargar gramatica
@@ -199,12 +198,8 @@ def main():
         print("\n" + "=" * 70)
         print("ANALISIS SINTACTICO LR(1)")
         print("=" * 70)
-        print(encabezado_traza())
-        print(separador_traza())
         
         parser.parse(tokens, mostrar_traza=True)
-        
-        print(separador_traza())
         
         elapsed = time.time() - start_time
         
