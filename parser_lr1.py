@@ -318,7 +318,10 @@ class LR1Parser:
         return simbolo
         
     def parse(self, tokens, mostrar_traza=True):
-        self.tokens = tokens
+        # Filtrar tokens de error lexico (cod=911) antes de parsear.
+        # Estos ya fueron reportados por el lexer; si entran al parser
+        # solo generan errores en cascada porque ningun estado los acepta.
+        self.tokens = [t for t in tokens if t[0] != 911]
         self.pos = 0
         self.pila = [0]
         self.pila_simbolos = []
@@ -328,15 +331,22 @@ class LR1Parser:
         self.shifts = 0
         self.reduces = 0
         self.aceptado = False
-        
+
         paso = 1
-        max_errores = 5
+        self._fin_por_reset = False
+        # Limite razonable: evita cascadas infinitas pero reporta todos los errores reales
+        max_errores = 10
         
         if tokens:
             print(f"\n[DEBUG PARSER] Primer token: {tokens[0]}")
             print(f"[DEBUG PARSER] Codigo esperado para 'empieza' en gramatica: {self.terminales.get('empieza')}")
         
         while True:
+            if self._fin_por_reset:
+                if mostrar_traza:
+                    self._imprimir_tabla_traza()
+                return False, self.errores, self.pasos
+
             estado = self.pila[-1]
             token_actual = self._token_actual()
             
@@ -365,7 +375,7 @@ class LR1Parser:
             
             if accion is None:
                 if len(self.errores) >= max_errores:
-                    print(f"\n[ERROR] Demasiados errores ({max_errores}). Deteniendo.")
+                    print(f"\n[ERROR] Se alcanzaron {max_errores} errores. Deteniendo el analisis.")
                     print(f"[DEBUG] Ultimo estado: {estado}, simbolo: '{lexema}', codigo: {codigo_token}")
                     if estado in self.accion:
                         print(f"[DEBUG] Acciones disponibles: {list(self.accion[estado].keys())}")
@@ -517,13 +527,16 @@ class LR1Parser:
         print(separador)
     
     def _recuperar_error(self, token):
-        puntos_sincro = [1, 2, 3, 4, 6, 14, 15, 16, 17, 24, 25, 999]
-        
+        # Puntos estructurales: marcan bloques (NO se consumen, se dejan para el analisis normal)
+        puntos_sincro_estructurales = {1, 2, 3, 401, 402, 999}  # empieza, termina, principal, indent, dedent, EOF
+        # Puntos de instruccion: inicio de nueva sentencia
+        puntos_sincro_instruccion = {4, 6, 14, 15, 16, 17, 24, 25}  # molde, haz, si, sino, mientras, para, salta, sigue
+        todos_puntos_sincro = puntos_sincro_estructurales | puntos_sincro_instruccion
+
         if token:
             linea = self._token_linea(token)
             lexema = self._token_texto(token)
             esperado = self._obtener_esperados()
-            
             self.errores.append(
                 f"[ERROR] en linea {linea}: se encontro '{lexema}', se esperaba {esperado}"
             )
@@ -532,28 +545,54 @@ class LR1Parser:
             self.errores.append("[ERROR] en EOF: entrada incompleta")
             print("  [ERROR] en EOF: entrada incompleta")
             return
-        
-        tokens_saltados = 0
+
+        # Estrategia minima: descartar el token erroneo y avanzar lo menos posible
+        self.pos += 1
+        tokens_saltados = 1
+        estado_actual = self.pila[-1]
+
         while self.pos < len(self.tokens):
-            token_actual = self.tokens[self.pos]
-            if token_actual[0] in puntos_sincro:
+            tok = self.tokens[self.pos]
+            cod = tok[0]
+            # El estado actual ya acepta este token -> reanudar sin tocar la pila
+            if cod in self.accion.get(estado_actual, {}):
+                break
+            # Punto de sincronizacion -> parar (sin consumirlo)
+            if cod in todos_puntos_sincro:
                 break
             self.pos += 1
             tokens_saltados += 1
-        
-        if tokens_saltados > 0:
-            print(f"  [Recuperando... saltando {tokens_saltados} token(s) hasta sincronizar]")
-            self.errores.append(f"  Se omitieron {tokens_saltados} tokens hasta recuperar")
-            self.errores_omitidos += tokens_saltados
-        
-        self.pila = [0]
-        self.pila_simbolos = []
-        
+
+        if tokens_saltados > 1:
+            print(f"  [Recuperando... saltando {tokens_saltados} token(s)]")
+            self.errores_omitidos += tokens_saltados - 1
+
+        # Resetear pila solo si el proximo token es estructural (contexto ya no recuperable)
         if self.pos < len(self.tokens):
-            token_actual = self.tokens[self.pos]
-            if token_actual[0] in puntos_sincro and token_actual[0] != 999:
-                self.pos += 1
-                print(f"  [Sincronizado en token '{token_actual[1]}']")
+            cod_siguiente = self.tokens[self.pos][0]
+            if cod_siguiente in puntos_sincro_estructurales:
+                self.pila = [0]
+                self.pila_simbolos = []
+                # Tras el reset, avanzar hasta que el estado 0 pueda consumir el siguiente token,
+                # evitando que cada token intermedio genere un error en cascada.
+                saltados_reset = 0
+                while self.pos < len(self.tokens):
+                    cod = self.tokens[self.pos][0]
+                    if cod in self.accion.get(0, {}):
+                        break
+                    self.pos += 1
+                    saltados_reset += 1
+                if saltados_reset > 0:
+                    self.errores_omitidos += saltados_reset
+                    print(f"  [Pila reiniciada: saltando {saltados_reset} token(s) hasta reanudar]")
+                else:
+                    print(f"  [Pila reiniciada en punto de sincronizacion estructural]")
+                # Si no queda ningun token util para el estado 0, marcar fin del analisis
+                if self.pos >= len(self.tokens):
+                    self._fin_por_reset = True
+        else:
+            self.pila = [0]
+            self.pila_simbolos = []
     
     def _obtener_esperados(self):
         estado = self.pila[-1]
