@@ -1,0 +1,2 @@
+Este codigo tiene como objetivo la implementación de un analizador sintáctico ascendente tipo LR(1) canónico para el lenguaje de programación QWERTY, un lenguaje de tipado dinámico, orientado a objetos y con sintaxis basada en indentación (similar a Python).
+El analizador sintáctico constituye la segunda fase del proceso de compilación, encargándose de verificar que la secuencia de tokens generada por el analizador léxico cumpla con las reglas gramaticales del lenguaje, construyendo implícitamente el árbol de análisis sintáctico a través del proceso de reducción.
